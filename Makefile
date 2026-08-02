@@ -1,9 +1,13 @@
 FLAGS := -s:ExeWithSource=true
 
-all: server
+all: server empty.html
 
 server: server.bas
 	qb64pe -w -x $(FLAGS) $^
+
+
+empty.html:
+	curl https://tiddlywiki.com/empty.html > empty.html
 
 .PHONY: clean fmt
 
