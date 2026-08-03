@@ -1,11 +1,13 @@
 $Console:Only
 Option _Explicit
 
+ChDir _StartDir$
+
 Const CRLF = Chr$(13) + Chr$(10)
 Const H_OK = "HTTP/1.1 200 OK" + CRLF
 Const H_CONTENT_TYPE = "Content-Type: text/html" + CRLF
 Const H_CONTENT_LENGTH_0 = "Content-Length: 0" + CRLF
-Const H_OPTIONS = H_OK + H_CONTENT_LENGTH_0 + "Allow: OPTIONS, GET, HEAD, PUT" + CRLF + "Dav: tw-put" + CRLF + CRLF
+Const H_OPTIONS = H_OK + H_CONTENT_LENGTH_0 + "Allow: OPTIONS, GET, HEAD, PUT" + CRLF + "Dav: tw-put" + CRLF
 
 Type HTTPHeader
     name As String
@@ -30,6 +32,7 @@ Sub InspectRequest
     Print "  resource: " + Req.resource
     Print "  content_length:", Req.content_length
     Print "-- End --"
+    Print
 End Sub
 
 
@@ -55,28 +58,28 @@ Do
         Get #c, , dat$
 
         Req = EmptyReq ' empty the Req
-        ParseRequest dat$
+        ParseRequest c, dat$
 
         req_line$ = Left$(dat$, InStr(dat$, CRLF) - 1)
         Print Time$ + " " + _ConnectionAddress(c) + " " + req_line$;
         Print " (" + _ToStr$(Len(dat$)) + ")"
         'InspectRequest
 
-        If InStr(dat$, "GET") = 1 Then
+        If Req.method = "GET" Then
             GET_Handler c
         End If
 
-        If InStr(dat$, "OPTIONS") = 1 Then
-            resp$ = H_OPTIONS
+        If Req.method = "OPTIONS" Then
+            resp$ = H_OPTIONS + CRLF
             Put #c, , resp$
             Close #c
         End If
 
-        If InStr(dat$, "PUT") = 1 Then
-            PUT_Handler c, dat$
+        If Req.method = "PUT" Then
+            PUT_Handler c
         End If
 
-        If InStr(dat$, "HEAD") = 1 Then
+        If Req.method = "HEAD" Then
             resp$ = H_OK + H_CONTENT_TYPE
             resp$ = resp$ + "Content-Length: " + _ToStr$(GetFileLength("empty.html")) + CRLF + CRLF
             Put #c, , resp$
@@ -90,9 +93,8 @@ Loop
 
 
 
-Sub ParseRequest (dat As String)
-
-    ' todo - should be a function that returns success/failure
+Sub ParseRequest (c As Long, dat As String)
+    ' todo - should be a function that returns success/failure?
 
     Dim As String body, top, req_line, headers, method, resource
     Dim As Integer idx, p, i
@@ -105,15 +107,12 @@ Sub ParseRequest (dat As String)
     req_line = Left$(top, InStr(top, CRLF) - 1)
     p = InStr(1, req_line, " ")
     method = Left$(req_line, p - 1)
-    'Print "method: '" + method + "'"
     Req.method = method
     resource = Mid$(req_line, p + 1, InStr(p + 1, req_line, " ") - p - 1)
-    'Print "resource: '" + resource + "'"
     Req.resource = resource
     headers = Mid$(top, InStr(top, CRLF) + 2)
-    'p = InStr(p + 1, req_line, " ")
 
-    While Len(headers) > 2 ' we need that CRLF from earlier...
+    While Len(headers) > 2 ' here we need that CRLF from earlier...
         p = InStr(headers, CRLF)
         If p Then
             lines(idx) = Left$(headers, p - 1)
@@ -131,6 +130,12 @@ Sub ParseRequest (dat As String)
         End If
     Next
 
+    While Len(body) < Req.content_length
+        Get #c, , dat$
+        body = body + dat$
+    Wend
+    Req.body = body
+
 End Sub ' ParseRequest
 
 
@@ -144,35 +149,47 @@ End Function
 
 
 Sub GET_Handler (c As Long)
-    Dim As String resp
-    resp = H_OK + H_CONTENT_TYPE
-    resp = resp + "Content-Length: " + _ToStr$(GetFileLength("empty.html")) + CRLF + CRLF
-    resp = resp + _ReadFile$("empty.html")
+    Dim As String fname
+    Dim As String resp, msg
+    If Req.resource = "/" Then
+        fname = _Files$("*.html")
+        While fname <> ""
+            msg = msg + "* <a href='" + fname + "'>" + fname + "</a><br>"
+            fname = _Files$
+        Wend
+        resp = H_OK + H_CONTENT_TYPE + CRLF
+        Put #c, , resp
+        Put #c, , msg
+    End If
+    fname = "." + Req.resource
+    If _FileExists(fname) Then
+        resp = H_OK + H_CONTENT_TYPE
+        resp = resp + "Content-Length: " + _ToStr$(GetFileLength(fname)) + CRLF + CRLF
+        resp = resp + _ReadFile$(fname)
+    Else
+        resp = "HTTP/1.1 404 Not Found" + CRLF + CRLF
+    End If
     Put #c, , resp
     Close #c
 End Sub
 
 
-Sub PUT_Handler (c As Long, dat$)
-    Dim buffer$, resp$
-    While Len(dat$) > 0
-        buffer$ = buffer$ + dat$
-        Get #c, , dat$
-        'If Len(dat$) > 0 Then
-        '    Print "  recd more data: " + _ToStr$(Len(dat$))
-        'End If
-    Wend
-    'Print "total buffer length: " + _ToStr$(Len(buffer$))
-    buffer$ = Mid$(buffer$, InStr(buffer$, CRLF + CRLF) + 4)
-    If Len(buffer$) <> Req.content_length Then
+Sub PUT_Handler (c As Long)
+    Dim resp$
+    Dim As String fname
+    Dim As Long body_len
+    body_len = Len(Req.body)
+    fname = "." + Req.resource
+    If body_len <> Req.content_length Then
         Print "LENGTHS DO NOT MATCH. Not saving.."
         resp$ = "HTTP/1.1 500 Internal Server Error"
     Else
-        _WriteFile "empty.html", buffer$
-        Print "  wrote " + _ToStr$(Len(buffer$)) + " bytes."
+        _WriteFile fname, Req.body
+        Print "  wrote " + _ToStr$(body_len) + " bytes to " + fname + "."
         resp$ = "HTTP/1.1 201 Created" + CRLF
     End If
     Put #c, , resp$
     Close #c
+    '_writefile "body.html", Req.body
 End Sub
 
