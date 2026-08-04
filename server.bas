@@ -43,7 +43,7 @@ Dim dat$, req_line$, resp$
 host = _OpenHost("TCP/IP:8080")
 
 If host = 0 Then
-    Print "Could not start server."
+    Print "Could not start server. For some reason. I don't know. Maybe port 8080 is already in use?"
     System
 Else
     Print
@@ -58,15 +58,21 @@ Do
         Get #c, , dat$
 
         Req = EmptyReq ' empty the Req
-        ParseRequest c, dat$
 
+        ' log incoming
         req_line$ = Left$(dat$, InStr(dat$, CRLF) - 1)
-        Print Time$ + " " + _ConnectionAddress(c) + " " + req_line$;
+        Print Time$ + "  " + _ConnectionAddress(c) + "  " + req_line$;
         Print " (" + _ToStr$(Len(dat$)) + ")"
+
+        ParseRequest c, dat$
         'InspectRequest
 
         If Req.method = "GET" Then
             GET_Handler c
+        End If
+
+        If Req.method = "PUT" Then
+            PUT_Handler c
         End If
 
         If Req.method = "OPTIONS" Then
@@ -75,13 +81,9 @@ Do
             Close #c
         End If
 
-        If Req.method = "PUT" Then
-            PUT_Handler c
-        End If
-
         If Req.method = "HEAD" Then
             resp$ = H_OK + H_CONTENT_TYPE
-            resp$ = resp$ + "Content-Length: " + _ToStr$(GetFileLength("empty.html")) + CRLF + CRLF
+            resp$ = resp$ + "Content-Length: " + _ToStr$(GetFileLength("." + Req.resource)) + CRLF + CRLF
             Put #c, , resp$
             Close #c
         End If
@@ -116,8 +118,8 @@ Sub ParseRequest (c As Long, dat As String)
         p = InStr(headers, CRLF)
         If p Then
             lines(idx) = Left$(headers, p - 1)
-            headers = Mid$(headers, p + 2)
             idx = idx + 1
+            headers = Mid$(headers, p + 2)
         End If
     Wend
 
@@ -132,6 +134,7 @@ Sub ParseRequest (c As Long, dat As String)
 
     While Len(body) < Req.content_length
         Get #c, , dat$
+        Print "   received", Len(dat$)
         body = body + dat$
     Wend
     Req.body = body
@@ -141,23 +144,27 @@ End Sub ' ParseRequest
 
 Function GetFileLength (fname As String)
     Dim f As Long
-    f = FreeFile
-    Open fname For Input As #f
-    GetFileLength = LOF(f)
-    Close #f
+    If _FileExists(fname) Then
+        f = FreeFile
+        Open fname For Input As #f
+        GetFileLength = LOF(f)
+        Close #f
+    End If
 End Function
 
 
 Sub GET_Handler (c As Long)
-    Dim As String fname
-    Dim As String resp, msg
+    Dim As String fname, resp, msg
     If Req.resource = "/" Then
-        fname = _Files$("*.html")
+        fname = _Files$("*.htm*")
+        msg = "<ul>"
         While fname <> ""
-            msg = msg + "* <a href='" + fname + "'>" + fname + "</a><br>"
+            msg = msg + "<li> <a href='" + fname + "'>" + fname + "</a></li>"
             fname = _Files$
         Wend
-        resp = H_OK + H_CONTENT_TYPE + CRLF
+        msg = msg + "</ul>"
+        resp = H_OK + H_CONTENT_TYPE
+        resp = resp + "Content-Length: " + _ToStr$(Len(msg)) + CRLF + CRLF
         Put #c, , resp
         Put #c, , msg
     End If
@@ -185,7 +192,7 @@ Sub PUT_Handler (c As Long)
         resp$ = "HTTP/1.1 500 Internal Server Error"
     Else
         _WriteFile fname, Req.body
-        Print "  wrote " + _ToStr$(body_len) + " bytes to " + fname + "."
+        Print "   wrote " + _ToStr$(body_len) + " bytes to " + fname + "."
         resp$ = "HTTP/1.1 201 Created" + CRLF
     End If
     Put #c, , resp$
