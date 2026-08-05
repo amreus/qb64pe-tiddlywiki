@@ -3,6 +3,7 @@ Option _Explicit
 
 ChDir _StartDir$
 
+
 Const CRLF = Chr$(13) + Chr$(10)
 Const H_OK = "HTTP/1.1 200 OK" + CRLF
 Const H_CONTENT_TYPE = "Content-Type: text/html" + CRLF
@@ -35,12 +36,19 @@ Sub InspectRequest
     Print
 End Sub
 
+Type ConfigType
+    Port As String
+End Type
+Dim Shared Config As ConfigType
+Config.Port = "8080"
+
+ParseOpts
 
 Dim As Long host, c
 Dim dat$, req_line$, resp$
 'Dim As Integer ret
 
-host = _OpenHost("TCP/IP:8080")
+host = _OpenHost("TCP/IP:" + Config.Port)
 
 If host = 0 Then
     Print "Could not start server. For some reason. I don't know. Maybe port 8080 is already in use?"
@@ -198,5 +206,35 @@ Sub PUT_Handler (c As Long)
     Put #c, , resp$
     Close #c
     '_writefile "body.html", Req.body
+End Sub
+
+Sub ParseOpts
+    Dim As Integer i
+    Dim As String target
+    ' Pass 1
+    For i = 0 To _CommandCount
+        Select Case Command$(i)
+	    case "-h", "--help"
+            PrintUsage
+            End
+	case InStr(Command$(i), "html") Then
+            target = Command$(i)
+        End If
+        If Command$(i) = "-p" Then
+            Config.Port = Command$(i + 1)
+        End If
+	end select
+    Next
+    ' Pass 2
+    For i = 0 To _CommandCount
+        Select Case Command$(i)
+            Case "-o", "-open", "--open"
+                Shell _DontWait _Hide "open http://localhost:" + Config.Port + "/" + target
+        End Select
+    Next
+End Sub
+
+Sub PrintUsage
+    Print Command$(0) + ": a sigle-file server for Tiddlywiki."
 End Sub
 
