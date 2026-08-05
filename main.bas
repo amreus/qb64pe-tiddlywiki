@@ -51,7 +51,7 @@ Dim dat$, req_line$, resp$
 host = _OpenHost("TCP/IP:" + Config.Port)
 
 If host = 0 Then
-    Print "Could not start server. For some reason. I don't know. Maybe port 8080 is already in use?"
+    Print "Could not start server. For some reason. I don't know."
     System
 Else
     Print
@@ -211,19 +211,23 @@ End Sub
 Sub ParseOpts
     Dim As Integer i
     Dim As String target
-    ' Pass 1
+    ' Pass 1 - set options
     For i = 0 To _CommandCount
         Select Case Command$(i)
-	    case "-h", "--help"
-            PrintUsage
-            End
-	case InStr(Command$(i), "html") Then
+            Case "-h", "--help"
+                PrintUsage
+                System
+            Case "-p"
+                If PortValid(Command$(i + 1)) Then
+                    Config.Port = Command$(i + 1)
+                Else
+                    PrintUsage
+                    System
+                End If
+        End Select
+        If InStr(Command$(i), "html") Then
             target = Command$(i)
         End If
-        If Command$(i) = "-p" Then
-            Config.Port = Command$(i + 1)
-        End If
-	end select
     Next
     ' Pass 2
     For i = 0 To _CommandCount
@@ -234,7 +238,19 @@ Sub ParseOpts
     Next
 End Sub
 
+Function PortValid (port As String)
+    Dim As Integer p, ret
+    p = Val(port, Integer)
+    If p _AndAlso p > 1024 Then
+        ret = _TRUE
+    Else
+        Print "Invalid port: " + port
+    End If
+    PortValid = ret
+End Function
+
 Sub PrintUsage
+    Print
     Print Command$(0) + ": a sigle-file server for Tiddlywiki."
 End Sub
 
