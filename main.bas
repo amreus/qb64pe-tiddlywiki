@@ -19,7 +19,7 @@ Dim Shared EmptyHeader As HTTPHeader
 Type HTTPRequest
     content_length As Long
     method As String
-    resource As String
+    path As String
     version As String
     headers(64) As HTTPHeader
     header_count As Integer
@@ -33,7 +33,7 @@ Sub InspectRequest
     Dim As Integer i
     Print "-- Req --"
     Print "  method: " + Req.method
-    Print "  resource: " + Req.resource
+    Print "  path: " + Req.path
     Print "  content_length:", Req.content_length
     Print "  header_count:", Req.header_count
     For i = 0 To Req.header_count - 1
@@ -47,8 +47,8 @@ Type ConfigType
     Port As String
     target As String
 End Type
-Dim Shared Config As ConfigType
-Config.Port = "8080"
+Dim Shared Options As ConfigType
+Options.Port = "8080"
 
 ParseOpts
 
@@ -57,14 +57,14 @@ Dim dat$, req_line$, resp$
 'Dim As Integer ret
 
 
-host = _OpenHost("TCP/IP:" + Config.Port)
+host = _OpenHost("TCP/IP:" + Options.Port)
 
 If host = 0 Then
     Print "Could not start server for some reason I don't know. Exiting."
     System
 Else
     Print
-    Print Date$, Time$, "Server waiting on clients at http://localhost:" + Config.Port + "/" + Config.target
+    Print Date$, Time$, "Server waiting on clients at http://localhost:" + Options.Port + "/" + Options.target
 End If
 
 Do
@@ -100,7 +100,7 @@ Do
 
         If Req.method = "HEAD" Then
             resp$ = H_OK + H_CONTENT_TYPE
-            resp$ = resp$ + "Content-Length: " + _ToStr$(GetFileLength("." + Req.resource)) + CRLF + CRLF
+            resp$ = resp$ + "Content-Length: " + _ToStr$(GetFileLength("." + Req.path)) + CRLF + CRLF
             Put #client, , resp$
             Close #client
         End If
@@ -115,7 +115,7 @@ Loop
 Sub ParseRequest (client As Long, dat As String)
     ' todo - should be a function that returns success/failure?
 
-    Dim As String body, top, req_line, headers, method, resource, header_line
+    Dim As String body, top, req_line, headers, method, path, header_line
     Dim As Integer idx, p, q
     Dim header As HTTPHeader
     ReDim lines(100) As String
@@ -127,8 +127,8 @@ Sub ParseRequest (client As Long, dat As String)
     p = InStr(1, req_line, " ")
     method = Left$(req_line, p - 1)
     Req.method = method
-    resource = Mid$(req_line, p + 1, InStr(p + 1, req_line, " ") - p - 1)
-    Req.resource = resource
+    path = Mid$(req_line, p + 1, InStr(p + 1, req_line, " ") - p - 1)
+    Req.path = path
     headers = Mid$(top, InStr(top, CRLF) + 2)
 
     While Len(headers) > 2 ' here we need that CRLF from earlier...
@@ -181,7 +181,7 @@ End Function
 
 Sub GET_Handler (client As Long)
     Dim As String fname, resp, msg
-    If Req.resource = "/" Then
+    If Req.path = "/" Then
         fname = _Files$("*.htm*")
         msg = "<ul>"
         While fname <> ""
@@ -194,7 +194,7 @@ Sub GET_Handler (client As Long)
         Put #client, , resp
         Put #client, , msg
     End If
-    fname = "." + Req.resource
+    fname = "." + Req.path
     If _FileExists(fname) Then
         resp = H_OK + H_CONTENT_TYPE
         resp = resp + "Content-Length: " + _ToStr$(GetFileLength(fname)) + CRLF + CRLF
@@ -212,7 +212,7 @@ Sub PUT_Handler (client As Long)
     Dim As String fname
     Dim As Long body_len
     body_len = Len(Req.body)
-    fname = "." + Req.resource
+    fname = "." + Req.path
     If body_len <> Req.content_length Then
         Print "LENGTHS DO NOT MATCH. Not saving.."
         resp$ = "HTTP/1.1 500 Internal Server Error"
@@ -237,21 +237,21 @@ Sub ParseOpts
                 System
             Case "-p"
                 If PortValid(Command$(i + 1)) Then
-                    Config.Port = Command$(i + 1)
+                    Options.Port = Command$(i + 1)
                 Else
                     PrintUsage
                     System
                 End If
         End Select
         If InStr(Command$(i), "html") Then
-            Config.target = Command$(i)
+            Options.target = Command$(i)
         End If
     Next
     ' Pass 2
     For i = 0 To _CommandCount
         Select Case Command$(i)
             Case "-o", "-open", "--open"
-                Shell _DontWait _Hide "open http://localhost:" + Config.Port + "/" + Config.target
+                Shell _DontWait _Hide "open http://localhost:" + Options.Port + "/" + Options.target
         End Select
     Next
 End Sub
