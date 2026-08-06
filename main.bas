@@ -3,7 +3,6 @@ Option _Explicit
 
 ChDir _StartDir$
 
-
 Const CRLF = Chr$(13) + Chr$(10)
 Const H_OK = "HTTP/1.1 200 OK" + CRLF
 Const H_CONTENT_TYPE = "Content-Type: text/html" + CRLF
@@ -15,12 +14,15 @@ Type HTTPHeader
     value As String
 End Type
 
+Dim Shared EmptyHeader As HTTPHeader
+
 Type HTTPRequest
     content_length As Long
     method As String
     resource As String
     version As String
-    headers(100) As HTTPHeader
+    headers(64) As HTTPHeader
+    header_count As Integer
     body As String
 End Type
 
@@ -28,72 +30,79 @@ Dim Shared As HTTPRequest EmptyReq
 Dim Shared As HTTPRequest Req
 
 Sub InspectRequest
+    Dim As Integer i
     Print "-- Req --"
     Print "  method: " + Req.method
     Print "  resource: " + Req.resource
     Print "  content_length:", Req.content_length
+    Print "  header_count:", Req.header_count
+    For i = 0 To Req.header_count - 1
+        Print Using "    \                    \ &"; Req.headers(i).name; Req.headers(i).value
+    Next
     Print "-- End --"
     Print
 End Sub
 
 Type ConfigType
     Port As String
+    target As String
 End Type
 Dim Shared Config As ConfigType
 Config.Port = "8080"
 
 ParseOpts
 
-Dim As Long host, c
+Dim As Long host, client
 Dim dat$, req_line$, resp$
 'Dim As Integer ret
+
 
 host = _OpenHost("TCP/IP:" + Config.Port)
 
 If host = 0 Then
-    Print "Could not start server. For some reason. I don't know."
+    Print "Could not start server for some reason I don't know. Exiting."
     System
 Else
     Print
-    Print Time$, "Server waiting on connections."
+    Print Date$, Time$, "Server waiting on clients at http://localhost:" + Config.Port + "/" + Config.target
 End If
 
 Do
-    c = _OpenConnection(host)
+    client = _OpenConnection(host)
 
-    If c < 0 Then
+    If client < 0 Then
 
-        Get #c, , dat$
+        Get #client, , dat$
 
         Req = EmptyReq ' empty the Req
 
         ' log incoming
         req_line$ = Left$(dat$, InStr(dat$, CRLF) - 1)
-        Print Time$ + "  " + _ConnectionAddress(c) + "  " + req_line$;
+        Print Date$, Time$ + "  " + _ConnectionAddress(client) + "  " + req_line$;
         Print " (" + _ToStr$(Len(dat$)) + ")"
 
-        ParseRequest c, dat$
+        ParseRequest client, dat$
         'InspectRequest
 
         If Req.method = "GET" Then
-            GET_Handler c
+            GET_Handler client
         End If
 
         If Req.method = "PUT" Then
-            PUT_Handler c
+            PUT_Handler client
         End If
 
         If Req.method = "OPTIONS" Then
             resp$ = H_OPTIONS + CRLF
-            Put #c, , resp$
-            Close #c
+            Put #client, , resp$
+            Close #client
         End If
 
         If Req.method = "HEAD" Then
             resp$ = H_OK + H_CONTENT_TYPE
             resp$ = resp$ + "Content-Length: " + _ToStr$(GetFileLength("." + Req.resource)) + CRLF + CRLF
-            Put #c, , resp$
-            Close #c
+            Put #client, , resp$
+            Close #client
         End If
 
     End If
@@ -103,12 +112,12 @@ Loop
 
 
 
-Sub ParseRequest (c As Long, dat As String)
+Sub ParseRequest (client As Long, dat As String)
     ' todo - should be a function that returns success/failure?
 
-    Dim As String body, top, req_line, headers, method, resource
-    Dim As Integer idx, p, i
-    Dim As Long cl
+    Dim As String body, top, req_line, headers, method, resource, header_line
+    Dim As Integer idx, p, q
+    Dim header As HTTPHeader
     ReDim lines(100) As String
 
     top = Left$(dat, InStr(dat, CRLF + CRLF) + 2) ' leave a CRLF at the end for later
@@ -125,29 +134,38 @@ Sub ParseRequest (c As Long, dat As String)
     While Len(headers) > 2 ' here we need that CRLF from earlier...
         p = InStr(headers, CRLF)
         If p Then
-            lines(idx) = Left$(headers, p - 1)
-            idx = idx + 1
+            header = EmptyHeader
+            header_line = Left$(headers, p - 1)
+            lines(idx) = header_line
+            q = InStr(header_line, ":")
+            header.name = Left$(header_line, q - 1)
+            header.value = _Trim$(Mid$(header_line, q + 1))
+            Req.headers(idx) = header
+            Inc idx
+            Inc Req.header_count
             headers = Mid$(headers, p + 2)
         End If
     Wend
 
-    For i = 0 To idx - 1
-        'Req.headers(idx) = lines(idx)
-        If InStr(1, lines(i), "Content-Length:") > 0 Then
-            p = InStr(1, lines(i), ":")
-            cl = Val(Mid$(lines(i), p + 1), Long)
-            Req.content_length = cl
-        End If
-    Next
+    Req.content_length = Val(Request_getHeader$("Content-Length"), Long)
 
     While Len(body) < Req.content_length
-        Get #c, , dat$
+        Get #client, , dat$
         Print "   received", Len(dat$)
         body = body + dat$
     Wend
     Req.body = body
 
 End Sub ' ParseRequest
+
+Function Request_getHeader$ (header_name As String)
+    Dim As Integer i
+    For i = 0 To Req.header_count - 1
+        If Req.headers(i).name = header_name Then
+            Request_getHeader$ = Req.headers(i).value
+        End If
+    Next
+End Function
 
 
 Function GetFileLength (fname As String)
@@ -161,7 +179,7 @@ Function GetFileLength (fname As String)
 End Function
 
 
-Sub GET_Handler (c As Long)
+Sub GET_Handler (client As Long)
     Dim As String fname, resp, msg
     If Req.resource = "/" Then
         fname = _Files$("*.htm*")
@@ -173,8 +191,8 @@ Sub GET_Handler (c As Long)
         msg = msg + "</ul>"
         resp = H_OK + H_CONTENT_TYPE
         resp = resp + "Content-Length: " + _ToStr$(Len(msg)) + CRLF + CRLF
-        Put #c, , resp
-        Put #c, , msg
+        Put #client, , resp
+        Put #client, , msg
     End If
     fname = "." + Req.resource
     If _FileExists(fname) Then
@@ -184,12 +202,12 @@ Sub GET_Handler (c As Long)
     Else
         resp = "HTTP/1.1 404 Not Found" + CRLF + CRLF
     End If
-    Put #c, , resp
-    Close #c
+    Put #client, , resp
+    Close #client
 End Sub
 
 
-Sub PUT_Handler (c As Long)
+Sub PUT_Handler (client As Long)
     Dim resp$
     Dim As String fname
     Dim As Long body_len
@@ -203,14 +221,14 @@ Sub PUT_Handler (c As Long)
         Print "   wrote " + _ToStr$(body_len) + " bytes to " + fname + "."
         resp$ = "HTTP/1.1 201 Created" + CRLF
     End If
-    Put #c, , resp$
-    Close #c
+    Put #client, , resp$
+    Close #client
     '_writefile "body.html", Req.body
 End Sub
 
+
 Sub ParseOpts
     Dim As Integer i
-    Dim As String target
     ' Pass 1 - set options
     For i = 0 To _CommandCount
         Select Case Command$(i)
@@ -226,17 +244,18 @@ Sub ParseOpts
                 End If
         End Select
         If InStr(Command$(i), "html") Then
-            target = Command$(i)
+            Config.target = Command$(i)
         End If
     Next
     ' Pass 2
     For i = 0 To _CommandCount
         Select Case Command$(i)
             Case "-o", "-open", "--open"
-                Shell _DontWait _Hide "open http://localhost:" + Config.Port + "/" + target
+                Shell _DontWait _Hide "open http://localhost:" + Config.Port + "/" + Config.target
         End Select
     Next
 End Sub
+
 
 Function PortValid (port As String)
     Dim As Integer p, ret
@@ -249,8 +268,18 @@ Function PortValid (port As String)
     PortValid = ret
 End Function
 
+
 Sub PrintUsage
     Print
     Print Command$(0) + ": a sigle-file server for Tiddlywiki."
+    Print
+    Print "Usage: ./server [-p port] [-o] [file.html]"
+    Print Chr$(9) + "-p port - the port number to use for the host. Defaults to 8080."
+    Print Chr$(9) + "-o - open a browser window."
+    Print Chr$(9) + "file.html - a TiddlyWiki file to serve."
 End Sub
 
+
+Sub Inc (n As Integer)
+    n = n + 1
+End Sub
