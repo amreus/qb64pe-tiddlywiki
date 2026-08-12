@@ -4,7 +4,7 @@
 
 FLAGS := -s:ExeWithSource=true
 
-TARGET := server
+TARGET := tws
 
 
 $(TARGET): main.bas
@@ -23,6 +23,6 @@ fmt:
 clean:
 	$(RM) $(TARGET)
 
-install: server
-	cp $(TARGET) ~/bin/twserver
+install: $(TARGET)
+	cp $(TARGET) ~/bin/$(TARGET)
 
