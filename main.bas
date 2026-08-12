@@ -86,10 +86,12 @@ Do
 
         If Req.method = "GET" Then
             GET_Handler client
+            Close #client
         End If
 
         If Req.method = "PUT" Then
             PUT_Handler client
+            Close #client
         End If
 
         If Req.method = "OPTIONS" Then
@@ -203,7 +205,6 @@ Sub GET_Handler (client As Long)
         resp = "HTTP/1.1 404 Not Found" + CRLF + CRLF
     End If
     Put #client, , resp
-    Close #client
 End Sub
 
 
@@ -222,7 +223,6 @@ Sub PUT_Handler (client As Long)
         resp$ = "HTTP/1.1 201 Created" + CRLF
     End If
     Put #client, , resp$
-    Close #client
     '_writefile "body.html", Req.body
 End Sub
 
